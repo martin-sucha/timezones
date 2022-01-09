@@ -6,8 +6,8 @@ import (
 	"time"
 )
 
-func TestLocationTemplate_NewLocation_UTC(t *testing.T) {
-	loc, err := LocationTemplate{
+func TestNewLocation_UTC(t *testing.T) {
+	loc, err := NewLocation(Template{
 		Name: "MyUTC",
 		Zones: []Zone{
 			{
@@ -18,7 +18,7 @@ func TestLocationTemplate_NewLocation_UTC(t *testing.T) {
 		},
 		Changes: nil,
 		Extend:  "",
-	}.NewLocation()
+	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -33,8 +33,8 @@ func TestLocationTemplate_NewLocation_UTC(t *testing.T) {
 	}
 }
 
-func TestLocationTemplate_NewLocation_FixedOffset(t *testing.T) {
-	loc, err := LocationTemplate{
+func TestNewLocation_FixedOffset(t *testing.T) {
+	loc, err := NewLocation(Template{
 		Name: "MyFixed",
 		Zones: []Zone{
 			{
@@ -45,7 +45,7 @@ func TestLocationTemplate_NewLocation_FixedOffset(t *testing.T) {
 		},
 		Changes: nil,
 		Extend:  "",
-	}.NewLocation()
+	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -60,8 +60,8 @@ func TestLocationTemplate_NewLocation_FixedOffset(t *testing.T) {
 	}
 }
 
-func TestLocationTemplate_NewLocation_Changes(t *testing.T) {
-	loc, err := LocationTemplate{
+func TestNewLocation_Changes(t *testing.T) {
+	loc, err := NewLocation(Template{
 		Name: "MyChanges",
 		Zones: []Zone{
 			{
@@ -86,7 +86,7 @@ func TestLocationTemplate_NewLocation_Changes(t *testing.T) {
 			},
 		},
 		Extend: "",
-	}.NewLocation()
+	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -111,13 +111,13 @@ func TestLocationTemplate_NewLocation_Changes(t *testing.T) {
 	}
 }
 
-func TestLocationTemplate_NewLocation_ExtendOnly(t *testing.T) {
-	loc, err := LocationTemplate{
+func TestNewLocation_ExtendOnly(t *testing.T) {
+	loc, err := NewLocation(Template{
 		Name:    "MyExt",
 		Zones:   nil,
 		Changes: nil,
 		Extend:  "<MyExt>-02:23:00<MyExtDST>-03:23:00,M1.2.3/10:00:00,M2.3.4/10:00:00",
-	}.NewLocation()
+	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -152,7 +152,7 @@ func TestLocationTemplate_NewLocation_ExtendOnly(t *testing.T) {
 	}
 }
 
-func benchTemplate() LocationTemplate {
+func benchTemplate() Template {
 	changes := make([]Change, 100)
 	for i := 0; i < len(changes); i += 2 {
 		changes[i].Start = time.Date(1980+i, time.January, 9, 10, 0, 0, 0, time.UTC)
@@ -160,7 +160,7 @@ func benchTemplate() LocationTemplate {
 		changes[i+1].Start = time.Date(1980+i, time.January, 9, 11, 0, 0, 0, time.UTC)
 		changes[i+1].ZoneIndex = 0
 	}
-	return LocationTemplate{
+	return Template{
 		Name: "MyChanges",
 		Zones: []Zone{
 			{
@@ -179,7 +179,7 @@ func benchTemplate() LocationTemplate {
 	}
 }
 
-var benchTmpl LocationTemplate
+var benchTmpl Template
 
 func BenchmarkAllocTemplate(b *testing.B) {
 	b.ReportAllocs()
@@ -194,7 +194,7 @@ func BenchmarkLocationTemplate_NewLocation(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		template := benchTemplate()
-		loc, err := template.NewLocation()
+		loc, err := NewLocation(template)
 		if err != nil {
 			b.Fatal(err)
 		}

@@ -32,8 +32,8 @@ type Change struct {
 	ZoneIndex int
 }
 
-// LocationTemplate describes how to build a time.Location.
-type LocationTemplate struct {
+// Template describes how to build a time.Location.
+type Template struct {
 	// Name of the new location.
 	Name string
 
@@ -56,12 +56,12 @@ type LocationTemplate struct {
 }
 
 // NewLocation creates a new time.Location from the template.
-func (l LocationTemplate) NewLocation() (*time.Location, error) {
-	tzData, err := buildTZData(&l)
+func NewLocation(template Template) (*time.Location, error) {
+	tzData, err := buildTZData(&template)
 	if err != nil {
 		return nil, err
 	}
-	return time.LoadLocationFromTZData(l.Name, tzData)
+	return time.LoadLocationFromTZData(template.Name, tzData)
 }
 
 const headerSize = 4 + 1 + 15 + 6*4 // magic + ver + unused + 6x count
@@ -78,7 +78,7 @@ const maxUserZones = 254
 //
 // If V2+ data is present in TZIF stream, readers should use V2 data.
 // Go ignores the V1 data completely, in that case, so buildTZData uses empty V1 data block.
-func buildTZData(template *LocationTemplate) ([]byte, error) {
+func buildTZData(template *Template) ([]byte, error) {
 	if len(template.Zones) > maxUserZones {
 		return nil, fmt.Errorf("too many zones (%d), max is %d", len(template.Zones), maxUserZones)
 	}
