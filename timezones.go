@@ -64,6 +64,11 @@ func NewLocation(template Template) (*time.Location, error) {
 	return time.LoadLocationFromTZData(template.Name, tzData)
 }
 
+// TZData converts the template to TZif data.
+func TZData(template Template) ([]byte, error) {
+	return buildTZData(&template)
+}
+
 const headerSize = 4 + 1 + 15 + 6*4 // magic + ver + unused + 6x count
 
 // maxUserZones is how many zones a user can specify.
