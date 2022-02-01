@@ -65,6 +65,9 @@ func NewLocation(template Template) (*time.Location, error) {
 }
 
 // TZData converts the template to TZif data.
+// The returned data will be compatible with Go's time package.
+// Compatilibity with other TZif readers is not guaranteed, in particular readers that support only version 1
+// of TZif will not work as TZData does not emit any V1 data.
 func TZData(template Template) ([]byte, error) {
 	return buildTZData(&template)
 }
