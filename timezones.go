@@ -3,6 +3,7 @@ package timezones
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -238,4 +239,234 @@ func fill(buffer []byte, value byte) {
 	for i := 1; i < l; i *= 2 {
 		copy(buffer[i:], buffer[:i])
 	}
+}
+
+var (
+	errInvalid            = errors.New("timezones: invalid tzdata")
+	errUnsupportedVersion = errors.New("timezones: unsupported tzdata version")
+	errTooManyZones       = errors.New("timezones: too many zones")
+	errStdUT              = errors.New("timezones: unsupported isstd/isut indicator values")
+)
+
+// LoadTZData into a template.
+func LoadTZData(tzdata []byte) (*Template, error) {
+	if len(tzdata) < headerSize {
+		return nil, errInvalid
+	}
+	header := tzdata[:headerSize]
+	if header[0] != 'T' || header[1] != 'Z' || header[2] != 'i' || header[3] != 'f' {
+		return nil, errInvalid
+	}
+	var version int
+	switch header[4] {
+	case 0:
+		version = 1
+	case '2':
+		version = 2
+	case '3':
+		version = 3
+	default:
+		return nil, errUnsupportedVersion
+	}
+
+	var isutcnt, isstdcnt, leapcnt, timecnt, typecnt, charcnt uint32
+	isutcnt = binary.BigEndian.Uint32(header[20:24])
+	isstdcnt = binary.BigEndian.Uint32(header[24:28])
+	leapcnt = binary.BigEndian.Uint32(header[28:32])
+	timecnt = binary.BigEndian.Uint32(header[32:36])
+	typecnt = binary.BigEndian.Uint32(header[36:40])
+	charcnt = binary.BigEndian.Uint32(header[40:44])
+	rest := tzdata[headerSize:]
+	tsize := 4 // v1 times are 32 bit
+	size := uint64(timecnt)*uint64(tsize+1) +
+		uint64(typecnt)*6 +
+		uint64(charcnt) +
+		uint64(leapcnt)*uint64(tsize+4) +
+		uint64(isstdcnt) +
+		uint64(isutcnt)
+	if uint64(len(rest)) < size {
+		return nil, errInvalid
+	}
+	if size > math.MaxInt {
+		return nil, errInvalid
+	}
+	if version > 1 {
+		// skip V1 data block
+		rest = rest[size:]
+		// read V2 header
+		if len(rest) < headerSize {
+			return nil, errInvalid
+		}
+		header, rest = rest[:headerSize], rest[headerSize:]
+
+		if header[0] != 'T' || header[1] != 'Z' || header[2] != 'i' || header[3] != 'f' {
+			return nil, errInvalid
+		}
+
+		if header[4] != tzdata[4] {
+			return nil, errInvalid
+		}
+		tsize = 8
+
+		isutcnt = binary.BigEndian.Uint32(header[20:24])
+		isstdcnt = binary.BigEndian.Uint32(header[24:28])
+		leapcnt = binary.BigEndian.Uint32(header[28:32])
+		timecnt = binary.BigEndian.Uint32(header[32:36])
+		typecnt = binary.BigEndian.Uint32(header[36:40])
+		charcnt = binary.BigEndian.Uint32(header[40:44])
+		size = uint64(timecnt)*uint64(tsize+1) +
+			uint64(typecnt)*6 +
+			uint64(charcnt) +
+			uint64(leapcnt)*uint64(tsize+4) +
+			uint64(isstdcnt) +
+			uint64(isutcnt)
+		if uint64(len(rest)) < size {
+			return nil, errInvalid
+		}
+		if size > math.MaxInt {
+			return nil, errInvalid
+		}
+	}
+
+	timesLen := int(timecnt) * tsize
+	times, rest := rest[:timesLen], rest[timesLen:]
+	typesLen := int(timecnt)
+	types, rest := rest[:typesLen], rest[typesLen:]
+	lttLen := int(typecnt) * 6
+	ltt, rest := rest[:lttLen], rest[lttLen:]
+	charLen := int(charcnt)
+	chars, rest := string(rest[:charLen]), rest[charLen:]
+	leapLen := int(leapcnt) * (tsize + 4)
+	leap, rest := rest[:leapLen], rest[leapLen:]
+	_ = leap
+	isstdLen := int(isstdcnt)
+	isstd, rest := rest[:isstdLen], rest[isstdLen:]
+	isutLen := int(isutcnt)
+	isut, rest := rest[:isutLen], rest[isutLen:]
+
+	for i := range isstd {
+		if isstd[i] != 1 {
+			return nil, errStdUT
+		}
+	}
+
+	for i := range isut {
+		if isut[i] != 1 {
+			return nil, errStdUT
+		}
+	}
+
+	changes := make([]Change, int(timecnt))
+	if version == 1 {
+		for i := 0; i < int(timecnt); i++ {
+			changes[i].Start = time.Unix(int64(int32(binary.BigEndian.Uint32(times))), 0)
+			times = times[4:]
+		}
+	} else {
+		for i := 0; i < int(timecnt); i++ {
+			changes[i].Start = time.Unix(int64(binary.BigEndian.Uint64(times)), 0)
+			times = times[8:]
+		}
+	}
+
+	zeroIsUsed := false
+	for i := 0; i < typesLen; i++ {
+		changes[i].ZoneIndex = int(types[i])
+		if changes[i].ZoneIndex == 0 {
+			zeroIsUsed = true
+		}
+	}
+
+	zones := make([]Zone, int(typecnt))
+	for i := 0; i < len(zones); i++ {
+		zones[i].Offset = time.Duration(int32(binary.BigEndian.Uint32(ltt[0:4]))) * time.Second
+		switch ltt[4] {
+		case 0:
+			zones[i].IsDST = false
+		case 1:
+			zones[i].IsDST = true
+		default:
+			return nil, errInvalid
+		}
+		idx := int(ltt[5])
+		if idx >= len(chars) {
+			return nil, errInvalid
+		}
+		zones[i].Name = zeroTerminated(chars[idx:])
+		ltt = ltt[6:]
+	}
+
+	// TZif says type at index 0 is always used for times before the first transition.
+	// Go implements a different algorithm.
+	// We do what Go does, so that we are compatible with the time package.
+	fz := firstZone(zones, changes, zeroIsUsed)
+	if fz != 0 {
+		// Swap the zones and update indexes so that first zone is always at index 0.
+		zeroIsUsed = false
+		zones[0], zones[fz] = zones[fz], zones[0]
+		for i := range changes {
+			switch changes[i].ZoneIndex {
+			case 0:
+				changes[i].ZoneIndex = fz
+			case fz:
+				changes[i].ZoneIndex = 0
+				zeroIsUsed = true
+			}
+		}
+	}
+
+	var extend string
+	if len(rest) >= 2 && rest[0] == '\n' && rest[len(rest)-1] == '\n' {
+		extend = string(rest[1 : len(rest)-1])
+	}
+
+	// buildTZData adds a special zone 0 (so that Go always uses it as first zone and because at least one zone
+	// is required in the tzif file).
+	// If we are reading output of buildTZData, remove the first zone, so that the round-tripped Template is the same.
+	if !zeroIsUsed && len(zones) >= 2 && zones[0] == zones[1] || len(changes) == 0 && extend != "" {
+		zones = zones[1:]
+		for i := range changes {
+			changes[i].ZoneIndex -= 1
+		}
+	}
+
+	if len(zones) > 254 {
+		// Template.Zones can have max 254 zones so that we can always create *time.Location unambiguously.
+		return nil, errTooManyZones
+	}
+
+	return &Template{
+		Zones:   zones,
+		Changes: changes,
+		Extend:  extend,
+	}, nil
+}
+
+func zeroTerminated(s string) string {
+	for i := 0; i < len(s); i++ {
+		if s[i] == 0 {
+			return s[:i]
+		}
+	}
+	return s
+}
+
+// firstZone selects the first zone the same way as Go does.
+func firstZone(zones []Zone, changes []Change, zeroIsUsed bool) int {
+	if !zeroIsUsed {
+		return 0
+	}
+	if len(changes) > 0 && zones[changes[0].ZoneIndex].IsDST {
+		for i := changes[0].ZoneIndex - 1; i >= 0; i-- {
+			if !zones[i].IsDST {
+				return i
+			}
+		}
+	}
+	for i := range zones {
+		if !zones[i].IsDST {
+			return i
+		}
+	}
+	return 0
 }

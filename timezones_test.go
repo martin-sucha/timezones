@@ -152,6 +152,86 @@ func TestNewLocation_ExtendOnly(t *testing.T) {
 	}
 }
 
+func TestRoundtrip(t *testing.T) {
+	tests := []struct {
+		name     string
+		template Template
+	}{
+		{
+			name: "fixed offset",
+			template: Template{
+				Name: "",
+				Zones: []Zone{
+					{
+						Name:   "MyFixed",
+						Offset: 2*time.Hour + 23*time.Minute,
+						IsDST:  false,
+					},
+				},
+				Changes: []Change{},
+				Extend:  "",
+			},
+		},
+		{
+			name: "extend only",
+			template: Template{
+				Name:    "",
+				Zones:   []Zone{},
+				Changes: []Change{},
+				Extend:  "<MyExt>-02:23:00<MyExtDST>-03:23:00,M1.2.3/10:00:00,M2.3.4/10:00:00",
+			},
+		},
+		{
+			name: "changes",
+			template: Template{
+				Name: "",
+				Zones: []Zone{
+					{
+						Name:   "Std",
+						Offset: 2*time.Hour + 23*time.Minute,
+						IsDST:  false,
+					},
+					{
+						Name:   "Dst",
+						Offset: 2*time.Hour + 53*time.Minute,
+						IsDST:  true,
+					},
+				},
+				Changes: []Change{
+					{
+						Start:     time.Date(2022, time.January, 9, 10, 0, 0, 0, time.UTC),
+						ZoneIndex: 1,
+					},
+					{
+						Start:     time.Date(2022, time.January, 9, 11, 0, 0, 0, time.UTC),
+						ZoneIndex: 0,
+					},
+				},
+				Extend: "",
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			tzdata, err := TZData(test.template)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t2, err := LoadTZData(tzdata)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Normalize timezone so that DeepEqual works.
+			for i := range t2.Changes {
+				t2.Changes[i].Start = t2.Changes[i].Start.In(time.UTC)
+			}
+			if !reflect.DeepEqual(t2, &test.template) {
+				t.Fatalf("got=%+v want=%+v", t2, &test.template)
+			}
+		})
+	}
+}
+
 func benchTemplate() Template {
 	changes := make([]Change, 100)
 	for i := 0; i < len(changes); i += 2 {
@@ -233,6 +313,25 @@ func BenchmarkLoadLocation(b *testing.B) {
 			b.Fatal(err)
 		}
 		benchLoadLocation = loc
+	}
+}
+
+var benchLoadTZData *Template
+
+func BenchmarkLoadTZData(b *testing.B) {
+	template := benchTemplate()
+	buf, err := buildTZData(&template)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		tmpl, err := LoadTZData(buf)
+		if err != nil {
+			b.Fatal(err)
+		}
+		benchLoadTZData = tmpl
 	}
 }
 
