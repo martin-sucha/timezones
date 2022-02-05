@@ -430,8 +430,8 @@ func LoadTZData(tzdata []byte) (*Template, error) {
 		}
 	}
 
-	if len(zones) > 254 {
-		// Template.Zones can have max 254 zones so that we can always create *time.Location unambiguously.
+	if len(zones) > maxUserZones {
+		// Template.Zones can have only maxUserZones so that we can always create *time.Location unambiguously.
 		return nil, errTooManyZones
 	}
 
