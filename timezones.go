@@ -94,8 +94,9 @@ func buildTZData(template *Template) ([]byte, error) {
 	if len(template.Zones) == 0 && template.Extend == "" {
 		return nil, fmt.Errorf("either zones or extend string need to be present")
 	}
-	if len(template.Changes) > math.MaxUint32 {
-		return nil, fmt.Errorf("too many changes (%d), max is %d", len(template.Changes), math.MaxUint32)
+	nchanges := int64(len(template.Changes))
+	if nchanges > math.MaxUint32 {
+		return nil, fmt.Errorf("too many changes (%d), max is %v", nchanges, int64(math.MaxUint32))
 	}
 
 	size := headerSize + // v1 header + empty v1 data block
